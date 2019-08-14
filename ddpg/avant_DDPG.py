@@ -299,7 +299,7 @@ def train(obs_mode=avant_para.state_modes[2]):
             a = actor.choose_action(s)
             # add randomness to action selection for exploration
             a = np.clip(np.random.normal(a, var), *ACTION_BOUND)
-            s_, r = command_to_avant(a, obs_mode)
+            s_, r = get_step_states(a, obs_mode)
             M.store_transition(s, a, r, s_)
 
             if M.pointer > avant_para.MEMORY_CAPACITY:  # if the experience pool is full then update A,C nets
