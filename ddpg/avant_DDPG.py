@@ -15,25 +15,6 @@ import avant_para
 np.random.seed(1)
 tf.set_random_seed(1)
 
-MAX_EPISODES = 1200
-MAX_EP_STEPS = 90
-LR_A = 1e-4  # learning rate for actor
-LR_C = 1e-4  # learning rate for critic
-GAMMA = 0.9  # reward discount
-REPLACE_ITER_A = 1100
-REPLACE_ITER_C = 1000
-MEMORY_CAPACITY = 3000
-BATCH_SIZE = 64
-print("bs:", BATCH_SIZE)
-VAR_MIN = 0.2
-VAR_MAX = 1.5  # control exploration
-RENDER = True
-LOAD = False
-MODE = ['easy', 'hard']
-n_model = 1
-
-
-#env = ArmEnv(mode=MODE[n_model])
 global env
 global STATE_DIM
 global ACTION_DIM
@@ -212,21 +193,21 @@ class Memory(object):
 def train(obs_mode=avant_para.state_modes[2]):
     global env
     if obs_mode == avant_para.state_modes[2]:
-        STATE_DIM = 12  # 8 vis + 4 senor states: Angle boom, Angle bucket, Length telescope, TransmissionPressureSensor16 -TransmissionPressureSensor13
-    elif obs_mode == avant_para.state_modes[1]:
-        STATE_DIM = 4  # 4 senor states: Angle boom, Angle bucket, Length telescope, TransmissionPressureSensor16 -TransmissionPressureSensor13
+        STATE_DIM = 11  # 8 vis + 4 senor states: Angle boom, Angle bucket, Length telescope, TransmissionPressureSensor16 -TransmissionPressureSensor13
     elif obs_mode == avant_para.state_modes[0]:
+        STATE_DIM = 3  # 4 senor states: Angle boom, Angle bucket, Length telescope, TransmissionPressureSensor16 -TransmissionPressureSensor13
+    elif obs_mode == avant_para.state_modes[1]:
         STATE_DIM = 8  # 8 vis
     else:
         print('wrong states modes\n choose one from:', avant_para.state_modes)
-    ACTION_DIM = 6  # 4 actions: Steering command, Boom command, Bucket command, Telescope command
+    ACTION_DIM = 3  # 4 actions: Steering command, Boom command, Bucket command, Telescope command
 
     ACTION_BOUND = [-1, 1]
 
     global S
     global R
     global S_
-    var = VAR_MAX
+    var = avant_para.VAR_MAX
 
     # all placeholder for tf
     with tf.name_scope('S'):
@@ -240,21 +221,25 @@ def train(obs_mode=avant_para.state_modes[2]):
     sess = tf.Session()
 
     # Create actor and critic.
-    actor = Actor(sess, ACTION_DIM, ACTION_BOUND[1], LR_A, REPLACE_ITER_A)
-    critic = Critic(sess, STATE_DIM, ACTION_DIM, LR_C,
-                    GAMMA, REPLACE_ITER_C, actor.a, actor.a_)
+    actor = Actor(sess, ACTION_DIM, ACTION_BOUND[1], avant_para.LR_A, avant_para.REPLACE_ITER_A)
+    critic = Critic(sess, STATE_DIM, ACTION_DIM, avant_para.LR_C,
+                    avant_para.GAMMA, avant_para.REPLACE_ITER_C, actor.a, actor.a_)
     actor.add_grad_to_graph(critic.a_grads)
 
-    M = Memory(MEMORY_CAPACITY, dims=2 * STATE_DIM + ACTION_DIM + 1)
+    M = Memory(avant_para.MEMORY_CAPACITY, dims=2 * STATE_DIM + ACTION_DIM + 1)
 
     saver = tf.train.Saver()
 
     # create the name for path based on different configurations
-    extention = 'DDPG'
+    extention = 'weights/RL_weights/DDPG_' + obs_mode
     path = './' + extention
+    off_policy_weights_path = path + '/off-policy'
     # create output path
     if not os.path.isdir(path):
         os.mkdir(path)
+    if not os.path.isdir(off_policy_weights_path):
+        os.mkdir(off_policy_weights_path)
+
     ckpt_path = os.path.join('./' + extention, 'DDPG.ckpt')
     log_path = os.path.join('./' + extention, 'train_log')
     if obs_mode == avant_para.state_modes[2]:
@@ -266,29 +251,32 @@ def train(obs_mode=avant_para.state_modes[2]):
     else:
         print('wrong state mode')
 
-    LOAD_EXP = True
-    LOAD_WEIGHTS = False
-
-    if LOAD_WEIGHTS:
+    # if load pretrained weights
+    if avant_para.LOAD_ON_WEIGHTS:
         # if the pretrained-weights exists, then load
+        print('loading on policy trained weights')
         saver.restore(sess, tf.train.latest_checkpoint(path))
+    elif avant_para.LOAD_OFF_WEIGHTS:
+        print('loading off policy trained weights')
+        saver.restore(sess, tf.train.latest_checkpoint(off_policy_weights_path))
     else:
         sess.run(tf.global_variables_initializer())
 
-    if not os.path.isdir(exp_path) and not LOAD_EXP:
+    # if load experiences
+    if not os.path.isdir(exp_path) and not avant_para.LOAD_EXP:
         os.mkdir(exp_path)
-    elif LOAD_EXP:
+    elif avant_para.LOAD_EXP:
         # if experiences are stored in the folder, then pretrain
         exp_all = glob(exp_path + '/*')
         #print(exp_path, exp_all)
-        exp_to_load = random.sample(exp_all, MEMORY_CAPACITY)
+        exp_to_load = random.sample(exp_all, avant_para.MEMORY_CAPACITY)
         for i in exp_to_load:
             exp = np.load(i)
             print(exp)
             M.store_prev_transition(exp)
 
         for e in range(50):
-            b_M = M.sample(BATCH_SIZE)
+            b_M = M.sample(avant_para.BATCH_SIZE)
             b_s = b_M[:, :STATE_DIM]
             b_a = b_M[:, STATE_DIM: STATE_DIM + ACTION_DIM]
             b_r = b_M[:, -STATE_DIM - 1: -STATE_DIM]
@@ -298,11 +286,15 @@ def train(obs_mode=avant_para.state_modes[2]):
             actor.learn(b_s)
             print('loss', critic.loss)
 
-    for ep in range(MAX_EPISODES):
+        # save the off-policy pretrained weights
+        ckpt_ep_path = os.path.join(off_policy_weights_path, 'DDPG_offPolicy' + '.ckpt')
+        save_ep_path = saver.save(sess, ckpt_ep_path, write_meta_graph=False)
+
+    for ep in range(avant_para.MAX_EPISODES):
         s, gt_ = reset_avant(obs_mode)  # give the command to Avant, so it can move back to start point
         ep_reward = 0
 
-        for t in range(MAX_EP_STEPS):
+        for t in range(avant_para.MAX_EP_STEPS):
             # Added exploration noise
             a = actor.choose_action(s)
             # add randomness to action selection for exploration
@@ -310,12 +302,12 @@ def train(obs_mode=avant_para.state_modes[2]):
             s_, r = command_to_avant(a, obs_mode)
             M.store_transition(s, a, r, s_)
 
-            if M.pointer > MEMORY_CAPACITY:  # if the experience pool is full then update A,C nets
+            if M.pointer > avant_para.MEMORY_CAPACITY:  # if the experience pool is full then update A,C nets
                 # print(M.pointer)
                 # decay the action randomness
-                var = max([var * .9999, VAR_MIN])
+                var = max([var * .9999, avant_para.VAR_MIN])
                 for i in range(2):
-                    b_M = M.sample(BATCH_SIZE)
+                    b_M = M.sample(avant_para.BATCH_SIZE)
                     b_s = b_M[:, :STATE_DIM]
                     b_a = b_M[:, STATE_DIM: STATE_DIM + ACTION_DIM]
                     b_r = b_M[:, -STATE_DIM - 1: -STATE_DIM]
@@ -327,11 +319,11 @@ def train(obs_mode=avant_para.state_modes[2]):
             s = s_
             ep_reward += r
 
-            if t == MAX_EP_STEPS - 1:  # when 1 episode is over
+            if t == avant_para.MAX_EP_STEPS - 1:  # when 1 episode is over
 
-                if M.pointer > MEMORY_CAPACITY:
+                if M.pointer > avant_para.MEMORY_CAPACITY:
                     for i in range(2):
-                        b_M = M.sample(BATCH_SIZE)
+                        b_M = M.sample(avant_para.BATCH_SIZE)
                         b_s = b_M[:, :STATE_DIM]
                         b_a = b_M[:, STATE_DIM: STATE_DIM + ACTION_DIM]
                         b_r = b_M[:, -STATE_DIM - 1: -STATE_DIM]
@@ -356,4 +348,4 @@ def train(obs_mode=avant_para.state_modes[2]):
     print("\nSave Model %s\n" % save_path)
 
 
-train()
+train(obs_mode=avant_para.state_modes[2])

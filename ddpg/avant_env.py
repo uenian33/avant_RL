@@ -33,8 +33,8 @@ def get_visual_states_2models(image_sequence):
      # Set classifier classes: bad, good
     nb_classes = 2
 
-    pretrained_name = 'C3D_feature_saved_model_weights.hdf5'
-    save_name = 'C3D_feature_saved_model.h5'
+    pretrained_name = 'weights/visual_weights/C3D_feature_saved_model_weights.hdf5'
+    save_name = 'weights/visual_weights/C3D_feature_saved_model.h5'
     sample_input = np.empty(
         [frames_sample, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL], dtype=np.uint8)
     model = c3d_model_feature(sample_input.shape, nb_classes)  # , feature=True)
@@ -48,8 +48,8 @@ def get_visual_states_2models(image_sequence):
         print(pretrained_name)
         print('Weights loaded')
 
-    pretrained_name = 'C3D_saved_model_weights.hdf5'
-    save_name = 'C3D_saved_model.h5'
+    pretrained_name = 'weights/visual_weights/C3D_saved_model_weights.hdf5'
+    save_name = 'weights/visual_weights/C3D_saved_model.h5'
     sample_input = np.empty(
         [frames_sample, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL], dtype=np.uint8)
     model2 = c3d_model(sample_input.shape, nb_classes)
@@ -80,8 +80,8 @@ def get_visual_states_1model(image_sequence):
      # Set classifier classes: bad, good
     nb_classes = 2
 
-    pretrained_name = 'C3D_feature_saved_model_weights.hdf5'
-    save_name = 'C3D_feature_saved_model.h5'
+    pretrained_name = 'weights/visual_weights/C3D_feature_saved_model_weights.hdf5'
+    save_name = 'weights/visual_weights/C3D_feature_saved_model.h5'
     sample_input = np.empty(
         [frames_sample, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL], dtype=np.uint8)
     model = c3d_model_feature(sample_input.shape, nb_classes)  # , feature=True)
