@@ -12,6 +12,7 @@ MEMORY_CAPACITY = 3000
 BATCH_SIZE = 64
 VAR_MIN = 0.2
 VAR_MAX = 1.5  # control exploration
+DONE_STEPS = 20
 
 LOAD_EXP = True
 LOAD_OFF_WEIGHTS = False  # load off-policy trained

@@ -108,6 +108,26 @@ def get_visual_states_1model(image_sequence):
     return f, reward
 
 
+def get_visual_data(frames, model_mode=1, FRAME_HEIGHT=112, FRAME_WIDTH=112, FRAME_CHANNEL=3):
+    single_clip_list = []
+    for f in frames:
+        x = cv2.resize(f, (FRAME_HEIGHT, FRAME_WIDTH))
+        x = np.asarray(x) / 255.0
+        single_clip_list.append(x)
+
+    single_clip = np.asarray(single_clip_list)
+    single_clip = np.expand_dims(single_clip, axis=0)
+    image_sequence = np.empty([0, FRAMES_PER_VIDEO, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL], dtype=np.float32)
+    image_sequence = np.append(clip, single_clip, axis=0)
+
+    if model_mode == 1:
+        im_feature, reward = get_visual_states_1model(image_sequence)
+    elif model_mode == 2:
+        im_featre, reward = get_visual_states_2models(image_sequence)
+
+    return im_feature, reward
+
+
 def cal_states_rewards(sensor_data, image_sequence, mode):
     """
         calculate states and rewards
