@@ -694,7 +694,7 @@ class c_env(object):
     def reset(self):
         small_reset = True
         if self.projection or small_reset:
-            self.dxy = 0.3  # + random.uniform(-0.2, .2)
+            self.dxy = 5  # + random.uniform(-0.2, .2)
             self.dt = 0.15  # + random.uniform(-0.2, .2)
             ar = 0.
             self.crane_info['r'] = ar

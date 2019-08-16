@@ -19,7 +19,7 @@ global state_dim
 
 MAX_STEP = 120
 MAX_EP_STEPS = 1200
-sample_numsteps = 500
+sample_numsteps = 10
 var = .95
 VAR_MIN = 0.11
 
@@ -112,137 +112,208 @@ def str_to_bool(s):
     else:
         raise ValueError  # evil ValueError
 
-# Environment
-# env = NormalizedActions(gym.make(args.env_name))
-#env = gym.make(args.env_name)
-args = get_args()
-set_env_arg(t_type=args.t_type,
-            n_type=args.n_type,
-            r_type=args.r_type,
-            proj=str_to_bool(args.proj),
-            cam_r_noise=str_to_bool(args.cam_r_noise),
-            cam_t_noise=str_to_bool(args.cam_t_noise),
-            cam_in_noise=str_to_bool(args.cam_in_noise),
-            test=str_to_bool(args.test))
 
-torch.manual_seed(args.seed)
-np.random.seed(args.seed)
-# env.seed(args.seed)
+def train():
+    # Environment
+    # env = NormalizedActions(gym.make(args.env_name))
+    #env = gym.make(args.env_name)
+    global var
+    args = get_args()
+    set_env_arg(t_type=args.t_type,
+                n_type=args.n_type,
+                r_type=args.r_type,
+                proj=str_to_bool(args.proj),
+                cam_r_noise=str_to_bool(args.cam_r_noise),
+                cam_t_noise=str_to_bool(args.cam_t_noise),
+                cam_in_noise=str_to_bool(args.cam_in_noise),
+                test=str_to_bool(args.test))
 
-# Agent
-agent = SAC(env.state_dim, env.action_space, args)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    # env.seed(args.seed)
 
-# TesnorboardX
-writer = SummaryWriter(logdir='runs/{}_SAC_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), args.env_name,
-                                                            args.policy, "autotune" if args.automatic_entropy_tuning else ""))
+    # Agent
+    agent = SAC(env.state_dim, env.action_space, args)
+    agent.load_model('models/sac_actor_crane70_', 'models/sac_critic_crane70_')
 
-# Memory
-memory = ReplayMemory(args.replay_size)
+    # TesnorboardX
+    writer = SummaryWriter(logdir='runs/{}_SAC_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), args.env_name,
+                                                                args.policy, "autotune" if args.automatic_entropy_tuning else ""))
 
-# Training Loop
-total_numsteps = 0
-updates = 0
+    # Memory
+    memory = ReplayMemory(args.replay_size)
+
+    # Training Loop
+    total_numsteps = 0
+    updates = 0
+
+    for ep in range(MAX_EP_STEPS):
+        state, gt = env.reset()
+        episode_reward = 0
+
+        for t in range(MAX_STEP):
+                    # while True:
+            env.render()
+
+            # Added exploration noise
+            if ep < sample_numsteps:
+                print('sample')
+                action = env.action_space.sample()  # Sample random action
+            else:
+                # Sample action from policy
+                action = agent.select_action(state)
+
+            # add randomness to action selection for exploration
+            action = np.clip(np.random.normal(action, var), *ACTION_BOUND)
+            next_state, reward, done, _ = env.step(action)  # Step
+            if done:
+                mask = 1
+            else:
+                mask = 0
+            memory.push(state, action, reward, next_state,
+                        mask)  # Append transition to memory
+
+            """# store experience
+                    trans = np.hstack((s, a, [r], s_))
+                    outfile = exp_path + '/' + str(ep) + '_' + str(t)
+                    np.save(outfile, trans)
+                    """
+
+            if len(memory) > sample_numsteps * MAX_STEP:
+                # Number of updates per step in environment
+                var = max([var * .9999, VAR_MIN])
+                for i in range(1):
+                    # Update parameters of all the networks
+                    critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
+                        memory, 512, updates)
+
+                    writer.add_scalar('loss/critic_1', critic_1_loss, updates)
+                    writer.add_scalar('loss/critic_2', critic_2_loss, updates)
+                    writer.add_scalar('loss/policy', policy_loss, updates)
+                    writer.add_scalar('loss/entropy_loss', ent_loss, updates)
+                    writer.add_scalar(
+                        'entropy_temprature/alpha', alpha, updates)
+                    updates += 1
+
+            state = next_state
+
+            episode_reward += reward
+
+            if t == MAX_STEP - 1 or done:
+                if len(memory) > sample_numsteps * MAX_STEP:
+                    for i in range(10):
+                        # Update parameters of all the networks
+                        critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
+                            memory, 512, updates)
+
+                        writer.add_scalar('loss/critic_1', critic_1_loss, updates)
+                        writer.add_scalar('loss/critic_2', critic_2_loss, updates)
+                        writer.add_scalar('loss/policy', policy_loss, updates)
+                        writer.add_scalar('loss/entropy_loss', ent_loss, updates)
+                        writer.add_scalar(
+                            'entropy_temprature/alpha', alpha, updates)
+                        updates += 1
+
+                # if done:
+                result = '| done' if done else '| ----'
+                print('Ep:', ep,
+                      result,
+                      '| R: %i' % int(episode_reward),
+                      '| Explore: %.2f' % var,
+                      )
+
+                out_s = 'Ep: ' + str(ep) + ' result: ' + str(done) + \
+                    " R: " + str(episode_reward) + " Explore " + str(var) + " \n"
+                break
+                """
+                    f = open(log_path, "a+")
+                    f.write(out_s)
+                    f.close()
+                    """
+            if ep % 10 == 0:
+                agent.save_model(env_name='crane' + str(ep))
+
+    agent.save_model(env_name='crane')
 
 
-for ep in range(MAX_EP_STEPS):
-    state, gt = env.reset()
-    episode_reward = 0
+def test():
+    # Environment
+    # env = NormalizedActions(gym.make(args.env_name))
+    #env = gym.make(args.env_name)
+    args = get_args()
+    args.eval = True
+    set_env_arg(t_type=args.t_type,
+                n_type=args.n_type,
+                r_type=args.r_type,
+                proj=str_to_bool(args.proj),
+                cam_r_noise=str_to_bool(args.cam_r_noise),
+                cam_t_noise=str_to_bool(args.cam_t_noise),
+                cam_in_noise=str_to_bool(args.cam_in_noise),
+                test=str_to_bool(args.test))
 
-    for t in range(MAX_STEP):
-                # while True:
-        env.render()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    # env.seed(args.seed)
 
-        # Added exploration noise
-        if t > sample_numsteps:
-            action = env.action_space.sample()  # Sample random action
-        else:
-            # Sample action from policy
+    # Agent
+    agent = SAC(env.state_dim, env.action_space, args)
+    agent.load_model('models/sac_actor_crane_', 'models/sac_critic_crane_')
+
+    # TesnorboardX
+    writer = SummaryWriter(logdir='runs/{}_SAC_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), args.env_name,
+                                                                args.policy, "autotune" if args.automatic_entropy_tuning else ""))
+
+    # Memory
+    memory = ReplayMemory(args.replay_size)
+
+    # Training Loop
+    total_numsteps = 0
+    updates = 0
+
+    for ep in range(MAX_EP_STEPS):
+        state, gt = env.reset()
+        episode_reward = 0
+
+        for t in range(MAX_STEP):
+                    # while True:
+            env.render()
+
             action = agent.select_action(state)
 
-        # add randomness to action selection for exploration
-        action = np.clip(np.random.normal(action, var), *ACTION_BOUND)
-        next_state, reward, done, _ = env.step(action)  # Step
-        if done:
-            mask = 1
-        else:
-            mask = 0
-        memory.push(state, action, reward, next_state,
-                    mask)  # Append transition to memory
+            next_state, reward, done, _ = env.step(action)  # Step
+            if done:
+                mask = 1
+            else:
+                mask = 0
+            memory.push(state, action, reward, next_state,
+                        mask)  # Append transition to memory
 
-        """# store experience
-                trans = np.hstack((s, a, [r], s_))
-                outfile = exp_path + '/' + str(ep) + '_' + str(t)
-                np.save(outfile, trans)
+            """# store experience
+                    trans = np.hstack((s, a, [r], s_))
+                    outfile = exp_path + '/' + str(ep) + '_' + str(t)
+                    np.save(outfile, trans)
+                    """
+
+            state = next_state
+
+            episode_reward += reward
+
+            if t == MAX_STEP - 1 or done:
+
+                # if done:
+                result = '| done' if done else '| ----'
+                print('Ep:', ep,
+                      result,
+                      '| R: %i' % int(episode_reward),
+                      '| Explore: %.2f' % var,
+                      )
+
+                out_s = 'Ep: ' + str(ep) + ' result: ' + str(done) + \
+                    " R: " + str(episode_reward) + " Explore " + str(var) + " \n"
                 """
+                    f = open(log_path, "a+")
+                    f.write(out_s)
+                    f.close()
+                    """
 
-        if len(memory) > 512 * 5:
-            # Number of updates per step in environment
-            var = max([var * .9999, VAR_MIN])
-            for i in range(3):
-                # Update parameters of all the networks
-                critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
-                    memory, 512, updates)
-
-                writer.add_scalar('loss/critic_1', critic_1_loss, updates)
-                writer.add_scalar('loss/critic_2', critic_2_loss, updates)
-                writer.add_scalar('loss/policy', policy_loss, updates)
-                writer.add_scalar('loss/entropy_loss', ent_loss, updates)
-                writer.add_scalar(
-                    'entropy_temprature/alpha', alpha, updates)
-                updates += 1
-
-        state = next_state
-
-        episode_reward += reward
-
-        if t == MAX_STEP - 1 or done:
-
-            # if done:
-            result = '| done' if done else '| ----'
-            print('Ep:', ep,
-                  result,
-                  '| R: %i' % int(episode_reward),
-                  '| Explore: %.2f' % var,
-                  )
-
-            out_s = 'Ep: ' + str(ep) + ' result: ' + str(done) + \
-                " R: " + str(episode_reward) + " Explore " + str(var) + " \n"
-            """
-                f = open(log_path, "a+")
-                f.write(out_s)
-                f.close()
-                """
-        if ep%10 == 0:
-            agent.save_model(env_name='crane')
-"""
-    if total_numsteps > args.num_steps:
-        break
-
-    writer.add_scalar('reward/train', episode_reward, ep)
-    print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(
-        ep, total_numsteps, 100, round(episode_reward, 2)))
-
-    if ep % 10 == 0 and args.eval == True:
-        avg_reward = 0.
-        episodes = 10
-        for _ in range(episodes):
-            state, gt = env.reset()
-            episode_reward = 0
-            done = False
-            while not done:
-                action = agent.select_action(state, eval=True)
-
-                next_state, reward, done, _ = env.step(action)
-                episode_reward += reward
-
-                state = next_state
-            avg_reward += episode_reward
-        avg_reward /= episodes
-
-        writer.add_scalar('avg_reward/test', avg_reward, ep)
-
-        print("----------------------------------------")
-        print("Test Episodes: {}, Avg. Reward: {}".format(
-            episodes, round(avg_reward, 2)))
-        print("----------------------------------------")
-"""
+train()
